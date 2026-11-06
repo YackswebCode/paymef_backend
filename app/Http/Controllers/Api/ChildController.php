@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Guardian;
 use App\Models\Invoice;
-use App\Models\PaymentAttempt;
 use App\Models\User;
+use App\Services\Payments\PaymentService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +19,8 @@ class ChildController extends Controller
      * Invoice states that still owe money.
      */
     private const OPEN_STATUSES = ['issued', 'partially_paid', 'overdue'];
+
+    public function __construct(private readonly PaymentService $payments) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -45,21 +47,15 @@ class ChildController extends Controller
     }
 
     /**
-     * Sum what is still owed across the student's open invoices, taking any
-     * partially successful payments into account.
+     * Sum what is still owed across the student's open invoices, taking partial
+     * payments and processed refunds into account.
      */
     private function outstandingFor(User $student): int
     {
-        $invoices = Invoice::query()
+        return (int) Invoice::query()
             ->where('student_id', $student->id)
             ->whereIn('status', self::OPEN_STATUSES)
-            ->get(['id', 'amount_minor']);
-
-        $paid = (int) PaymentAttempt::query()
-            ->whereIn('invoice_id', $invoices->pluck('id'))
-            ->where('status', 'success')
-            ->sum('amount_minor');
-
-        return max(0, (int) $invoices->sum('amount_minor') - $paid);
+            ->get()
+            ->sum(fn (Invoice $invoice) => $this->payments->outstandingFor($invoice));
     }
 }

@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'school_id', 'student_id', 'reference', 'amount_minor', 'currency', 'status', 'due_date',
+    'school_id', 'student_id', 'reference', 'description', 'amount_minor', 'currency', 'status',
+    'due_date', 'reminded_at',
 ])]
 class Invoice extends Model
 {
@@ -18,6 +19,7 @@ class Invoice extends Model
         return [
             'amount_minor' => 'integer',
             'due_date' => 'date',
+            'reminded_at' => 'datetime',
         ];
     }
 
@@ -58,5 +60,10 @@ class Invoice extends Model
     public function paymentAttempts(): HasMany
     {
         return $this->hasMany(PaymentAttempt::class);
+    }
+
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(Refund::class);
     }
 }

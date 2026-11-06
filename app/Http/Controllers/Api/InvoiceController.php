@@ -3,26 +3,44 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\BulkStoreInvoiceRequest;
 use App\Http\Requests\Api\StoreInvoiceRequest;
+use App\Http\Requests\Api\UpdateInvoiceRequest;
 use App\Models\Invoice;
-use App\Models\User;
+use App\Models\PaymentAttempt;
+use App\Services\Invoices\InvoiceService;
+use App\Services\Payments\PaymentService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class InvoiceController extends Controller
 {
     use AuthorizesRequests;
 
+    public function __construct(
+        private readonly InvoiceService $invoices,
+        private readonly PaymentService $payments
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+
         $invoices = Invoice::query()
-            ->visibleTo($request->user())
+            ->visibleTo($user)
             ->when(
-                $request->user()->isAdmin() && $request->filled('school_id'),
+                $user->isAdmin() && $request->filled('school_id'),
                 fn ($query) => $query->where('school_id', $request->integer('school_id'))
+            )
+            ->when(
+                $request->filled('status'),
+                fn ($query) => $query->where('status', $request->string('status'))
+            )
+            ->when(
+                $user->hasRole('school_admin', 'admin') && $request->filled('student_id'),
+                fn ($query) => $query->where('student_id', $request->integer('student_id'))
             )
             ->latest('id')
             ->paginate(20);
@@ -36,62 +54,93 @@ class InvoiceController extends Controller
 
         return response()->json([
             'invoice' => $invoice->load('school:id,name,slug', 'student:id,name,email'),
+            'outstanding_minor' => $this->payments->outstandingFor($invoice),
         ]);
     }
 
     public function store(StoreInvoiceRequest $request): JsonResponse
     {
-        $user = $request->user();
-        $data = $request->validated();
-
-        if ($user->isAdmin()) {
-            if (empty($data['school_id'])) {
-                throw ValidationException::withMessages([
-                    'school_id' => 'The school_id field is required for administrators.',
-                ]);
-            }
-
-            $schoolId = (int) $data['school_id'];
-        } else {
-            if ($user->school_id === null) {
-                abort(403, 'Your account is not attached to a school.');
-            }
-
-            // A school admin can never redirect an invoice to another school.
-            if (isset($data['school_id']) && (int) $data['school_id'] !== (int) $user->school_id) {
-                abort(403, 'You can only create invoices for your own school.');
-            }
-
-            $schoolId = (int) $user->school_id;
-        }
-
-        $student = User::query()
-            ->whereKey($data['student_id'])
-            ->where('role', 'student')
-            ->first();
-
-        if (! $student) {
-            throw ValidationException::withMessages([
-                'student_id' => 'The selected student is invalid.',
-            ]);
-        }
-
-        if ((int) $student->school_id !== $schoolId) {
-            throw ValidationException::withMessages([
-                'student_id' => 'The student does not belong to this school.',
-            ]);
-        }
-
-        $invoice = Invoice::create([
-            'school_id' => $schoolId,
-            'student_id' => $student->id,
-            'reference' => $data['reference'] ?? 'INV-'.Str::upper(Str::random(10)),
-            'amount_minor' => $data['amount_minor'],
-            'currency' => $data['currency'] ?? 'NGN',
-            'status' => $data['status'] ?? 'issued',
-            'due_date' => $data['due_date'] ?? null,
-        ]);
+        $invoice = $this->invoices->create($request->user(), $request->validated());
 
         return response()->json(['invoice' => $invoice], 201);
+    }
+
+    public function bulk(BulkStoreInvoiceRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        $schoolId = $data['school_id'] ?? null;
+
+        // Administrators supply the school once for the whole batch.
+        $rows = array_map(
+            fn (array $row) => $schoolId !== null ? ['school_id' => $schoolId] + $row : $row,
+            $data['invoices']
+        );
+
+        $created = $this->invoices->bulk($request->user(), $rows);
+
+        return response()->json(['invoices' => $created], 201);
+    }
+
+    public function update(UpdateInvoiceRequest $request, Invoice $invoice): JsonResponse
+    {
+        $this->authorize('manage', $invoice);
+
+        if ($invoice->status === 'cancelled') {
+            throw ValidationException::withMessages([
+                'invoice' => 'A cancelled invoice cannot be edited.',
+            ]);
+        }
+
+        $data = $request->validated();
+
+        $paid = (int) PaymentAttempt::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('status', 'success')
+            ->sum('amount_minor');
+
+        if ($paid > 0 && (array_key_exists('amount_minor', $data) || array_key_exists('currency', $data))) {
+            throw ValidationException::withMessages([
+                'amount_minor' => 'The amount cannot change once a payment has been made.',
+            ]);
+        }
+
+        $invoice->update($data);
+
+        return response()->json(['invoice' => $invoice->refresh()]);
+    }
+
+    public function cancel(Invoice $invoice): JsonResponse
+    {
+        $this->authorize('manage', $invoice);
+
+        $paid = (int) PaymentAttempt::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('status', 'success')
+            ->sum('amount_minor');
+
+        if ($paid > 0) {
+            throw ValidationException::withMessages([
+                'invoice' => 'Refund the payments before cancelling this invoice.',
+            ]);
+        }
+
+        $invoice->update(['status' => 'cancelled']);
+
+        return response()->json(['invoice' => $invoice->refresh()]);
+    }
+
+    public function issue(Invoice $invoice): JsonResponse
+    {
+        $this->authorize('manage', $invoice);
+
+        if ($invoice->status !== 'draft') {
+            throw ValidationException::withMessages([
+                'status' => 'Only a draft invoice can be issued.',
+            ]);
+        }
+
+        $invoice->update(['status' => 'issued']);
+
+        return response()->json(['invoice' => $invoice->refresh()]);
     }
 }

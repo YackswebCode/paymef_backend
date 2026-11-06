@@ -30,6 +30,24 @@ class PaystackClient
         return $this->data($response, 'Payment could not be verified.');
     }
 
+    /**
+     * Refund all or part of a successful transaction.
+     *
+     * @return array<string, mixed>
+     */
+    public function refundTransaction(string $reference, ?int $amountMinor = null): array
+    {
+        $payload = ['transaction' => $reference];
+
+        if ($amountMinor !== null) {
+            $payload['amount'] = $amountMinor;
+        }
+
+        $response = $this->client()->post('/refund', $payload);
+
+        return $this->data($response, 'The refund could not be created.');
+    }
+
     private function client(): PendingRequest
     {
         $secret = (string) config('paymef.paystack.secret_key');

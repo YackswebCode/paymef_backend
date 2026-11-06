@@ -20,4 +20,12 @@ class SchoolPolicy
             && $user->school_id !== null
             && (int) $user->school_id === (int) $school->id;
     }
+
+    /**
+     * Profile and staff changes are platform-administrator territory.
+     */
+    public function update(User $user, School $school): bool
+    {
+        return $user->isAdmin();
+    }
 }

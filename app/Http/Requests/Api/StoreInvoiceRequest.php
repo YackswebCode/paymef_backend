@@ -20,6 +20,7 @@ class StoreInvoiceRequest extends FormRequest
         return [
             'school_id' => ['nullable', 'integer', 'exists:schools,id'],
             'student_id' => ['required', 'integer', 'exists:users,id'],
+            'description' => ['nullable', 'string', 'max:255'],
             'amount_minor' => ['required', 'integer', 'min:1'],
             'currency' => ['nullable', 'string', 'size:3'],
             'status' => ['nullable', 'string', Rule::in(['draft', 'issued'])],

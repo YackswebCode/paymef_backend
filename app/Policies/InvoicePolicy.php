@@ -41,4 +41,27 @@ class InvoicePolicy
     {
         return $this->view($user, $invoice);
     }
+
+    /**
+     * Who may change or cancel the invoice itself. Students and guardians pay
+     * invoices; they never edit them.
+     */
+    public function manage(User $user, Invoice $invoice): bool
+    {
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $user->hasRole('school_admin')
+            && $user->school_id !== null
+            && (int) $user->school_id === (int) $invoice->school_id;
+    }
+
+    /**
+     * Only the school that issued an invoice can refund money against it.
+     */
+    public function refund(User $user, Invoice $invoice): bool
+    {
+        return $this->manage($user, $invoice);
+    }
 }

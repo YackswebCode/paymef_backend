@@ -2,13 +2,16 @@
 
 namespace App\Services\Payments;
 
+use App\Mail\PaymentReceiptMail;
 use App\Models\Invoice;
 use App\Models\LedgerEntry;
 use App\Models\PaymentAttempt;
+use App\Models\Refund;
 use App\Models\User;
 use App\Services\Paystack\PaystackClient;
 use App\Services\Paystack\PaystackException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -22,11 +25,51 @@ class PaymentService
 
     public function __construct(private readonly PaystackClient $paystack) {}
 
-    public function initialize(Invoice $invoice, User $payer): PaymentAttempt
-    {
+    /**
+     * Start a payment for the outstanding balance, or for a caller-specified
+     * part of it so installments are possible.
+     */
+    public function initialize(
+        Invoice $invoice,
+        User $payer,
+        ?int $amountMinor = null,
+        ?string $idempotencyKey = null
+    ): PaymentAttempt {
+        if ($idempotencyKey !== null) {
+            $existing = PaymentAttempt::query()
+                ->where('idempotency_key', $idempotencyKey)
+                ->first();
+
+            if ($existing) {
+                if ((int) $existing->invoice_id !== (int) $invoice->id) {
+                    throw ValidationException::withMessages([
+                        'idempotency_key' => 'This idempotency key was already used for another invoice.',
+                    ]);
+                }
+
+                return $existing;
+            }
+        }
+
         if (! in_array($invoice->status, self::PAYABLE_STATUSES, true)) {
             throw ValidationException::withMessages([
                 'invoice' => 'This invoice cannot be paid while it is '.$invoice->status.'.',
+            ]);
+        }
+
+        $outstanding = $this->outstandingFor($invoice);
+
+        if ($outstanding < 1) {
+            throw ValidationException::withMessages([
+                'invoice' => 'There is nothing left to pay on this invoice.',
+            ]);
+        }
+
+        $amount = $amountMinor ?? $outstanding;
+
+        if ($amount < 1 || $amount > $outstanding) {
+            throw ValidationException::withMessages([
+                'amount_minor' => 'The amount must be between 1 and '.$outstanding.' minor units.',
             ]);
         }
 
@@ -34,7 +77,8 @@ class PaymentService
             'invoice_id' => $invoice->id,
             'payer_id' => $payer->id,
             'provider' => 'paystack',
-            'amount_minor' => $invoice->amount_minor,
+            'idempotency_key' => $idempotencyKey,
+            'amount_minor' => $amount,
             'currency' => $invoice->currency,
             'status' => 'initialized',
         ]);
@@ -45,7 +89,7 @@ class PaymentService
         try {
             $data = $this->paystack->initializeTransaction([
                 'email' => $payer->email,
-                'amount' => (int) $invoice->amount_minor,
+                'amount' => $amount,
                 'currency' => $invoice->currency,
                 'reference' => $reference,
                 'callback_url' => rtrim((string) config('paymef.frontend_url'), '/').'/payments/callback',
@@ -54,6 +98,7 @@ class PaymentService
                     'invoice_reference' => $invoice->reference,
                     'school_id' => $invoice->school_id,
                     'payment_attempt_id' => $attempt->id,
+                    'outstanding_minor' => $outstanding,
                 ],
             ]);
         } catch (PaystackException $e) {
@@ -113,14 +158,14 @@ class PaymentService
      */
     public function settle(PaymentAttempt $attempt, array $payload): PaymentAttempt
     {
-        return DB::transaction(function () use ($attempt, $payload): PaymentAttempt {
+        [$settled, $freshlyCredited] = DB::transaction(function () use ($attempt, $payload): array {
             $locked = PaymentAttempt::query()
                 ->whereKey($attempt->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             if ($locked->status === 'success') {
-                return $locked;
+                return [$locked, false];
             }
 
             $invoice = Invoice::query()
@@ -136,13 +181,13 @@ class PaymentService
                     'provider_payload' => $payload,
                 ]);
 
-                return $locked;
+                return [$locked, false];
             }
 
             $paidAmount = (int) ($payload['amount'] ?? 0);
             $paidCurrency = strtoupper((string) ($payload['currency'] ?? ''));
 
-            // Never credit a payment that does not match what was invoiced.
+            // Never credit a payment that does not match what was charged.
             if ($paidAmount !== (int) $locked->amount_minor
                 || $paidCurrency !== strtoupper((string) $invoice->currency)) {
                 $locked->update([
@@ -150,7 +195,7 @@ class PaymentService
                     'provider_payload' => $payload,
                 ]);
 
-                return $locked;
+                return [$locked, false];
             }
 
             $locked->update([
@@ -160,7 +205,7 @@ class PaymentService
 
             // The unique idempotency key is the database-level guard against
             // a replayed webhook posting the same money twice.
-            LedgerEntry::firstOrCreate(
+            $entry = LedgerEntry::firstOrCreate(
                 ['idempotency_key' => 'paystack:'.$locked->provider_reference],
                 [
                     'school_id' => $invoice->school_id,
@@ -183,25 +228,87 @@ class PaymentService
 
             $this->syncInvoiceStatus($invoice);
 
-            return $locked;
+            return [$locked, $entry->wasRecentlyCreated];
         });
+
+        // Receipts are sent outside the transaction so a mail failure can never
+        // roll back money that Paystack has already taken.
+        if ($freshlyCredited) {
+            $this->queueReceipts($settled);
+        }
+
+        return $settled;
     }
 
-    private function syncInvoiceStatus(Invoice $invoice): void
+    /**
+     * Recalculate an invoice's state from successful payments minus processed
+     * refunds. No stored running total can drift from the ledger this way.
+     */
+    public function syncInvoiceStatus(Invoice $invoice): void
+    {
+        $invoice->refresh();
+
+        $paid = (int) PaymentAttempt::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('status', 'success')
+            ->sum('amount_minor');
+
+        $refunded = (int) Refund::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('status', 'processed')
+            ->sum('amount_minor');
+
+        $net = $paid - $refunded;
+
+        $status = match (true) {
+            $net >= (int) $invoice->amount_minor => 'paid',
+            $net > 0 => 'partially_paid',
+            // Fully refunded invoices go back to being owed.
+            in_array($invoice->status, ['paid', 'partially_paid'], true) => 'issued',
+            default => $invoice->status,
+        };
+
+        if ($status !== $invoice->status) {
+            $invoice->update(['status' => $status]);
+        }
+    }
+
+    /**
+     * What is still owed: the invoice total, minus successful payments, plus
+     * anything already refunded.
+     */
+    public function outstandingFor(Invoice $invoice): int
     {
         $paid = (int) PaymentAttempt::query()
             ->where('invoice_id', $invoice->id)
             ->where('status', 'success')
             ->sum('amount_minor');
 
-        $status = match (true) {
-            $paid >= (int) $invoice->amount_minor => 'paid',
-            $paid > 0 => 'partially_paid',
-            default => $invoice->status,
-        };
+        $refunded = (int) Refund::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('status', 'processed')
+            ->sum('amount_minor');
 
-        if ($status !== $invoice->status) {
-            $invoice->update(['status' => $status]);
+        return max(0, (int) $invoice->amount_minor - $paid + $refunded);
+    }
+
+    private function queueReceipts(PaymentAttempt $attempt): void
+    {
+        $attempt->loadMissing(['invoice.student', 'payer']);
+
+        $invoice = $attempt->invoice;
+
+        if (! $invoice) {
+            return;
+        }
+
+        $emails = collect([$attempt->payer?->email, $invoice->student?->email])
+            ->filter()
+            ->unique()
+            ->values();
+
+        foreach ($emails as $email) {
+            Mail::to($email)->queue(new PaymentReceiptMail($invoice, $attempt));
         }
     }
 
