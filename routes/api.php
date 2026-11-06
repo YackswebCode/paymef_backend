@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\PaystackWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -13,6 +15,11 @@ Route::get('/health', function () {
         'timestamp' => now()->toIso8601String(),
     ]);
 });
+
+// Provider callbacks arrive unauthenticated; authenticity is proven by the
+// HMAC signature in the request header.
+Route::post('/webhooks/paystack', PaystackWebhookController::class)
+    ->middleware('throttle:120,1');
 
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:6,1');
@@ -40,7 +47,9 @@ Route::prefix('auth')->group(function () {
 Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::get('/invoices', [InvoiceController::class, 'index']);
     Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
-
     Route::post('/invoices', [InvoiceController::class, 'store'])
         ->middleware('role:school_admin,admin');
+
+    Route::post('/invoices/{invoice}/pay', [PaymentController::class, 'store']);
+    Route::get('/payments/{reference}', [PaymentController::class, 'show']);
 });

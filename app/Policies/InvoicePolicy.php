@@ -24,4 +24,12 @@ class InvoicePolicy
 
         return (int) $user->id === (int) $invoice->student_id;
     }
+
+    /**
+     * Who may start a payment for this invoice.
+     */
+    public function pay(User $user, Invoice $invoice): bool
+    {
+        return $this->view($user, $invoice);
+    }
 }
