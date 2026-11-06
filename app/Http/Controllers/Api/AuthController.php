@@ -33,7 +33,14 @@ class AuthController extends Controller
             'phone' => $data['phone'] ?? null,
         ]);
 
-        return $this->tokenResponse($user, $data['device_name'] ?? 'api', 201);
+        $verificationSent = false;
+
+        if ($user->requiresEmailVerification()) {
+            $user->sendEmailVerificationNotification();
+            $verificationSent = true;
+        }
+
+        return $this->tokenResponse($user, $data['device_name'] ?? 'api', 201, $verificationSent);
     }
 
     public function login(LoginRequest $request): JsonResponse
@@ -78,12 +85,17 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out.']);
     }
 
-    private function tokenResponse(User $user, string $deviceName, int $status = 200): JsonResponse
-    {
+    private function tokenResponse(
+        User $user,
+        string $deviceName,
+        int $status = 200,
+        bool $verificationSent = false
+    ): JsonResponse {
         return response()->json([
             'user' => $user->load('school'),
             'token' => $user->createToken($deviceName)->plainTextToken,
             'token_type' => 'Bearer',
+            'email_verification_sent' => $verificationSent,
         ], $status);
     }
 }
