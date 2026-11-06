@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ChildController;
 use App\Http\Controllers\Api\EmailVerificationController;
+use App\Http\Controllers\Api\GuardianController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LedgerController;
 use App\Http\Controllers\Api\PasswordResetController;
@@ -58,4 +60,13 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::get('/wallet', [WalletController::class, 'show']);
     Route::get('/schools/{school}/wallet', [WalletController::class, 'school']);
     Route::get('/ledger', [LedgerController::class, 'index']);
+
+    Route::get('/children', [ChildController::class, 'index']);
+
+    Route::get('/students/{student}/guardians', [GuardianController::class, 'index'])
+        ->middleware('role:school_admin,admin');
+    Route::post('/students/{student}/guardians', [GuardianController::class, 'store'])
+        ->middleware('role:school_admin,admin');
+    Route::delete('/students/{student}/guardians/{parent}', [GuardianController::class, 'destroy'])
+        ->middleware('role:school_admin,admin');
 });

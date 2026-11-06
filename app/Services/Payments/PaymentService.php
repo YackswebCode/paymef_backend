@@ -32,6 +32,7 @@ class PaymentService
 
         $attempt = PaymentAttempt::create([
             'invoice_id' => $invoice->id,
+            'payer_id' => $payer->id,
             'provider' => 'paystack',
             'amount_minor' => $invoice->amount_minor,
             'currency' => $invoice->currency,
@@ -174,6 +175,7 @@ class PaymentService
                         'provider_reference' => $locked->provider_reference,
                         'invoice_id' => $invoice->id,
                         'invoice_reference' => $invoice->reference,
+                        'payer_id' => $locked->payer_id,
                     ],
                     'occurred_at' => now(),
                 ]

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'invoice_id', 'provider', 'provider_reference', 'amount_minor',
+    'invoice_id', 'payer_id', 'provider', 'provider_reference', 'amount_minor',
     'currency', 'status', 'provider_payload',
 ])]
 class PaymentAttempt extends Model
@@ -23,5 +23,10 @@ class PaymentAttempt extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function payer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'payer_id');
     }
 }

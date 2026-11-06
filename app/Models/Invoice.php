@@ -34,6 +34,14 @@ class Invoice extends Model
             return $query->where('school_id', $user->school_id);
         }
 
+        // A guardian sees the invoices raised on the students they are linked to.
+        if ($user->hasRole('parent')) {
+            return $query->whereIn(
+                'student_id',
+                Guardian::query()->select('student_id')->where('parent_id', $user->id)
+            );
+        }
+
         return $query->where('student_id', $user->id);
     }
 

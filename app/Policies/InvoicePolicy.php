@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Models\Guardian;
 use App\Models\Invoice;
 use App\Models\User;
 
@@ -9,7 +10,8 @@ class InvoicePolicy
 {
     /**
      * Administrators see everything, school admins are confined to their own
-     * school, and everyone else may only see invoices raised on themselves.
+     * school, guardians may see invoices for their linked students, and
+     * everyone else may only see invoices raised on themselves.
      */
     public function view(User $user, Invoice $invoice): bool
     {
@@ -20,6 +22,13 @@ class InvoicePolicy
         if ($user->hasRole('school_admin')) {
             return $user->school_id !== null
                 && (int) $user->school_id === (int) $invoice->school_id;
+        }
+
+        if ($user->hasRole('parent')) {
+            return Guardian::query()
+                ->where('parent_id', $user->id)
+                ->where('student_id', $invoice->student_id)
+                ->exists();
         }
 
         return (int) $user->id === (int) $invoice->student_id;
