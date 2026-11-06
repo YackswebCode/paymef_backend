@@ -3,9 +3,11 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\LedgerController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaystackWebhookController;
+use App\Http\Controllers\Api\WalletController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -52,4 +54,8 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
 
     Route::post('/invoices/{invoice}/pay', [PaymentController::class, 'store']);
     Route::get('/payments/{reference}', [PaymentController::class, 'show']);
+
+    Route::get('/wallet', [WalletController::class, 'show']);
+    Route::get('/schools/{school}/wallet', [WalletController::class, 'school']);
+    Route::get('/ledger', [LedgerController::class, 'index']);
 });

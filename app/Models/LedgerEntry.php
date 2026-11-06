@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -19,6 +20,22 @@ class LedgerEntry extends Model
             'meta' => 'array',
             'occurred_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Restrict a query to the entries the given user may see.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if ($user->isAdmin()) {
+            return $query;
+        }
+
+        if ($user->hasRole('school_admin') && $user->school_id !== null) {
+            return $query->where('school_id', $user->school_id);
+        }
+
+        return $query->where('user_id', $user->id);
     }
 
     public function school(): BelongsTo
