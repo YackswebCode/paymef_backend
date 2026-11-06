@@ -21,6 +21,13 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     /**
+     * Roles a user may assign to themselves through public registration.
+     *
+     * @var list<string>
+     */
+    public const SELF_REGISTERABLE_ROLES = ['student', 'parent'];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -31,6 +38,16 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function hasRole(string ...$roles): bool
+    {
+        return in_array($this->role, $roles, true);
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
     }
 
     public function school(): BelongsTo
