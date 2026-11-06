@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +19,22 @@ class Invoice extends Model
             'amount_minor' => 'integer',
             'due_date' => 'date',
         ];
+    }
+
+    /**
+     * Restrict a query to the invoices the given user may see.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if ($user->isAdmin()) {
+            return $query;
+        }
+
+        if ($user->hasRole('school_admin')) {
+            return $query->where('school_id', $user->school_id);
+        }
+
+        return $query->where('student_id', $user->id);
     }
 
     public function school(): BelongsTo

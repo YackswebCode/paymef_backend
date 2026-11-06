@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmailVerificationController;
+use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\PasswordResetController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,4 +35,12 @@ Route::prefix('auth')->group(function () {
         Route::post('/email/verification-notification', [EmailVerificationController::class, 'resend'])
             ->middleware('throttle:6,1');
     });
+});
+
+Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+    Route::get('/invoices', [InvoiceController::class, 'index']);
+    Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
+
+    Route::post('/invoices', [InvoiceController::class, 'store'])
+        ->middleware('role:school_admin,admin');
 });
