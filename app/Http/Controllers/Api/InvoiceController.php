@@ -43,7 +43,11 @@ class InvoiceController extends Controller
                 fn ($query) => $query->where('student_id', $request->integer('student_id'))
             )
             ->latest('id')
-            ->paginate(20);
+            ->paginate(20)
+            ->through(fn (Invoice $invoice): array => array_merge(
+                $invoice->toArray(),
+                ['outstanding_minor' => $this->payments->outstandingFor($invoice)]
+            ));
 
         return response()->json($invoices);
     }
