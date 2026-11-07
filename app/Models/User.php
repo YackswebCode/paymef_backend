@@ -11,11 +11,15 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'role', 'school_id', 'phone'])]
+#[Fillable([
+    'name', 'email', 'password', 'role', 'school_id', 'phone', 'profile', 'settings',
+    'kyc_status', 'kyc_tier', 'kyc_verified_at',
+])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements MustVerifyEmailContract
 {
@@ -39,6 +43,10 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'profile' => 'array',
+            'settings' => 'array',
+            'kyc_verified_at' => 'datetime',
+            'kyc_tier' => 'integer',
         ];
     }
 
@@ -71,9 +79,44 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return $this->hasMany(Invoice::class, 'student_id');
     }
 
+    public function campaigns(): HasMany
+    {
+        return $this->hasMany(Campaign::class, 'student_id');
+    }
+
+    public function savingsGoals(): HasMany
+    {
+        return $this->hasMany(SavingsGoal::class);
+    }
+
+    public function appNotifications(): HasMany
+    {
+        return $this->hasMany(AppNotification::class);
+    }
+
     public function ledgerEntries(): HasMany
     {
         return $this->hasMany(LedgerEntry::class);
+    }
+
+    public function kycVerifications(): HasMany
+    {
+        return $this->hasMany(KycVerification::class);
+    }
+
+    public function bankAccounts(): HasMany
+    {
+        return $this->hasMany(BankAccount::class);
+    }
+
+    public function bankAccount(): HasOne
+    {
+        return $this->hasOne(BankAccount::class)->latestOfMany();
+    }
+
+    public function walletTopups(): HasMany
+    {
+        return $this->hasMany(WalletTopup::class);
     }
 
     /**
