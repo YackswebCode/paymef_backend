@@ -325,7 +325,7 @@ class WorkspacePresenter
                     'name' => $child->name,
                     'email' => $child->email,
                     'matric_number' => $child->profile['matric_number'] ?? null,
-                    'school' => $child->school?->name,
+                    'school' => $child->school?->name ?? ($child->profile['school_name'] ?? null),
                     'school_id' => $child->school_id,
                     'school_address' => $child->school?->address,
                     'level' => $child->profile['level'] ?? null,

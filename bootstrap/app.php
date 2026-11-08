@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AuthenticateApiClient;
 use App\Http\Middleware\EnsureEmailIsVerified;
 use App\Http\Middleware\EnsureUserHasRole;
 use Illuminate\Foundation\Application;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'verified' => EnsureEmailIsVerified::class,
             'role' => EnsureUserHasRole::class,
+            'api_client' => AuthenticateApiClient::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

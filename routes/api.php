@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\AppNotificationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CampaignController;
 use App\Http\Controllers\Api\ChildController;
+use App\Http\Controllers\Api\DeveloperApiController;
+use App\Http\Controllers\Api\DeveloperApiKeyController;
 use App\Http\Controllers\Api\FeeController;
 use App\Http\Controllers\Api\NgoController;
 use App\Http\Controllers\Api\SavingsGoalController;
@@ -15,6 +17,7 @@ use App\Http\Controllers\Api\GuardianController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\KycController;
 use App\Http\Controllers\Api\LedgerController;
+use App\Http\Controllers\Api\MessagingController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaystackGatewayController;
@@ -227,4 +230,34 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/impact-metrics', [NgoController::class, 'impactMetrics']);
         Route::post('/campaigns/{campaign}/support', [NgoController::class, 'supportCampaign']);
     });
+});
+
+
+// Developer API keys are managed by their owner from the account centre.
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/developer/keys', [DeveloperApiKeyController::class, 'index']);
+    Route::post('/developer/keys', [DeveloperApiKeyController::class, 'store'])
+        ->middleware('throttle:10,1');
+    Route::delete('/developer/keys/{apiClient}', [DeveloperApiKeyController::class, 'destroy']);
+});
+
+// Public versioned API for partner websites and integrations.
+Route::prefix('v1')->middleware(['api_client', 'throttle:120,1'])->group(function () {
+    Route::get('/me', [DeveloperApiController::class, 'me']);
+    Route::get('/wallet', [DeveloperApiController::class, 'wallet']);
+    Route::get('/invoices', [DeveloperApiController::class, 'invoices']);
+    Route::get('/transactions', [DeveloperApiController::class, 'transactions']);
+});
+
+
+// Direct messages between students, parents, schools and PayMef admins.
+Route::middleware('auth:sanctum')->prefix('messaging')->group(function () {
+    Route::get('/conversations', [MessagingController::class, 'index']);
+    Route::post('/conversations', [MessagingController::class, 'store'])
+        ->middleware('throttle:30,1');
+    Route::get('/conversations/{conversation}', [MessagingController::class, 'show']);
+    Route::post('/conversations/{conversation}/messages', [MessagingController::class, 'storeMessage'])
+        ->middleware('throttle:60,1');
+    Route::post('/conversations/{conversation}/read', [MessagingController::class, 'markRead']);
+    Route::get('/recipients', [MessagingController::class, 'recipients']);
 });

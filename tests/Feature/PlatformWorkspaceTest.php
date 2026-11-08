@@ -140,7 +140,7 @@ class PlatformWorkspaceTest extends TestCase
         $donor = User::factory()->create(['role' => 'donor']);
         Sanctum::actingAs($donor);
 
-        $this->postJson("/api/campaigns/{$campaign->slug}/pledge", [
+        $this->postJson("/api/campaigns/{$campaign->id}/pledge", [
             'amount_minor' => 50000,
             'donor_name' => 'Kind Donor',
         ])->assertCreated()

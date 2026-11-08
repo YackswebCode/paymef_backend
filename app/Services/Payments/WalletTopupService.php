@@ -54,9 +54,16 @@ class WalletTopupService
             'purpose' => 'wallet_funding',
         ]);
 
+        // Seeded demo accounts use reserved .test addresses, which Paystack
+        // rejects as invalid. Real accounts keep their own email.
+        $email = $user->email;
+        if (app()->environment() !== 'production' && str_ends_with(strtolower($email), '.test')) {
+            $email = 'demo+'.$user->id.'@paymef.com';
+        }
+
         try {
             $data = $this->paystack->initializeTransaction([
-                'email' => $user->email,
+                'email' => $email,
                 'amount' => $amountMinor,
                 'currency' => $currency,
                 'reference' => $topup->reference,

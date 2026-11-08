@@ -189,10 +189,6 @@ class ProfileController extends Controller
             'kyc' => $this->kyc->summary($user),
             'bank_account' => $this->banks->present($this->banks->forUser($user)),
             'notification_preferences' => $this->notificationPreferences($user->settings ?? []),
-            'security' => [
-                'two_factor_enabled' => (bool) (($user->settings ?? [])['two_factor_enabled'] ?? false),
-                'last_login_at' => $user->updated_at?->toIso8601String(),
-            ],
         ];
     }
 
